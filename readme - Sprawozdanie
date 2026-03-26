@@ -1,0 +1,136 @@
+Kacper Sumera laboratorium 5
+
+1. utworzenie pliku main.go
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % touch main.go
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % cat main.go 
+package main
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+)
+
+var VERSION = "unknown"
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	hostname, _ := os.Hostname()
+	addrs, _ := net.InterfaceAddrs()
+	var ipAddr string
+	for _, a := range addrs {
+		if ipnet, ok := a.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+			if ipnet.IP.To4() != nil {
+				ipAddr = ipnet.IP.String()
+			}
+		}
+	}
+
+	fmt.Fprintf(w, "<h1>Aplikacja Webowa</h1>")
+	fmt.Fprintf(w, "<p><b>Wersja:</b> %s</p>", VERSION)
+	fmt.Fprintf(w, "<p><b>Hostname:</b> %s</p>", hostname)
+	fmt.Fprintf(w, "<p><b>Adres IP:</b> %s</p>", ipAddr)
+}
+
+func main() {
+	http.HandleFunc("/", handler)
+	fmt.Println("Serwer uruchomiony na porcie 8080...")
+	http.ListenAndServe(":8080", nil)
+}                                                                                                                                                               
+
+
+
+2. utworzenie Dockerfile                                                                                                            
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % docker init
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % cat Dockerfile 
+FROM scratch AS stage1
+ADD alpine-minirootfs-3.23.3-x86_64.tar.gz /
+RUN apk add --no-cache go
+WORKDIR /app
+COPY main.go .
+ARG VERSION=1.0.0
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.VERSION=${VERSION}" -o myapp main.go
+
+FROM nginx:alpine
+COPY --from=stage1 /app/myapp /usr/local/bin/myapp
+COPY default.conf /etc/nginx/conf.d/default.conf
+RUN apk add --no-cache curl
+HEALTHCHECK --interval=30s --timeout=3s CMD curl -f http://localhost/ || exit 1
+CMD ["sh", "-c", "/usr/local/bin/myapp & nginx -g 'daemon off;'"]                                                                                               
+
+
+3. Utworzenie pliku default.conf z konfiguracja nginx
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % touch default.conf
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % cat default.conf 
+server {
+    listen 80;
+    server_name localhost;
+
+    location / {
+        proxy_pass http://localhost:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}                                                                                                                                                              
+
+
+
+4. Zbudowanie obrazu lab5-app
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % docker build --build-arg VERSION="1.0-lab5" -t lab5-app .         
+[+] Building 64.4s (15/15) FINISHED                                                                                                         docker:desktop-linux
+ => [internal] load build definition from Dockerfile                                                                                                        0.0s
+ => => transferring dockerfile: 564B                                                                                                                        0.0s
+ => [internal] load metadata for docker.io/library/nginx:alpine                                                                                             1.6s
+ => [auth] library/nginx:pull token for registry-1.docker.io                                                                                                0.0s
+ => [internal] load .dockerignore                                                                                                                           0.0s
+ => => transferring context: 671B                                                                                                                           0.0s
+ => CACHED [stage-1 1/4] FROM docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1                        0.0s
+ => => resolve docker.io/library/nginx:alpine@sha256:e7257f1ef28ba17cf7c248cb8ccf6f0c6e0228ab9c315c152f9c203cd34cf6d1                                       0.0s
+ => [internal] load build context                                                                                                                           0.0s
+ => => transferring context: 1.08kB                                                                                                                         0.0s
+ => CACHED [stage1 1/5] ADD alpine-minirootfs-3.23.3-x86_64.tar.gz /                                                                                        0.0s
+ => [stage1 2/5] RUN apk add --no-cache go                                                                                                                 44.4s
+ => [stage1 3/5] WORKDIR /app                                                                                                                               0.0s 
+ => [stage1 4/5] COPY main.go .                                                                                                                             0.0s 
+ => [stage1 5/5] RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.VERSION=1.0-lab5" -o myapp main.go                                                16.2s 
+ => [stage-1 2/4] COPY --from=stage1 /app/myapp /usr/local/bin/myapp                                                                                        0.0s 
+ => [stage-1 3/4] COPY default.conf /etc/nginx/conf.d/default.conf                                                                                          0.0s 
+ => [stage-1 4/4] RUN apk add --no-cache curl                                                                                                               1.8s 
+ => exporting to image                                                                                                                                      0.2s
+ => => exporting layers                                                                                                                                     0.2s
+ => => exporting manifest sha256:4d472e11ffed01fc5728c70f8d237fbc17d51a8c043f8b35d3d903d97505e2d1                                                           0.0s
+ => => exporting config sha256:183a0e092c872a2003e8e275dc5582afa49d1497da61be1e85b399c265dc691c                                                             0.0s
+ => => exporting attestation manifest sha256:cc19bfbec45dad256c0f2990388d50756e3ab38ac8a19981b9893d736c7cbbd2                                               0.0s
+ => => exporting manifest list sha256:04f64b06a35dca0a7ea8475a15befc60f62839ba220a6f3fc5cf4a05651361b0                                                      0.0s
+ => => naming to docker.io/library/lab5-app:latest                                                                                                          0.0s
+ => => unpacking to docker.io/library/lab5-app:latest                                                                                                       0.0s
+
+View build details: docker-desktop://dashboard/build/desktop-linux/desktop-linux/b8n80p745ljon4vfgdlivv8s2
+
+
+
+5. Uruchomienie kontenera
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % docker run -d --name lab5-serwer -p 80:80 lab5-app         
+abae7f1e72f31f7ab8bfb99e86baa1985bf39e5bf8ce42c60d6c3d4aeaacbd6f
+
+
+6. Sprawdzenie czy serwer funkcjonuje poprawnie
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % docker ps               
+CONTAINER ID   IMAGE      COMMAND                  CREATED         STATUS                   PORTS                                 NAMES
+abae7f1e72f3   lab5-app   "/docker-entrypoint.…"   2 minutes ago   Up 2 minutes (healthy)   0.0.0.0:80->80/tcp, [::]:80->80/tcp   lab5-serwer
+
+
+
+7. Sprawdzenie zawartości aplikacji
+kacpersumera@netpanel-87-246-220-152 lab5_Kacper_Sumera % curl -i http://localhost
+HTTP/1.1 200 OK
+Server: nginx/1.29.7
+Date: Thu, 26 Mar 2026 16:06:43 GMT
+Content-Type: text/html; charset=utf-8
+Content-Length: 125
+Connection: keep-alive
+
+<h1>Aplikacja Webowa</h1>
+<p><b>Wersja:</b> 1.0-lab5</p>
+<p><b>Hostname:</b> abae7f1e72f3</p>
+<p><b>Adres IP:</b> 172.17.0.2</p>                                   
